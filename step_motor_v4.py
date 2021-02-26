@@ -28,54 +28,52 @@ client.connect("192.168.175.248", 1883, 60)
 
 client.loop_start()
 
+GPIO.setmode(GPIO.BCM)
+# Choose an open pin connected to the Data In of the NeoPixel strip, i.e. board.D18
+# NeoPixels must be connected to D10, D12, D18 or D21 to work.
+pixel_pin = board.D18
+
+# The number of NeoPixels
+num_pixels = 30
+
+# The order of the pixel colors - RGB or GRB. Some NeoPixels have red and green reversed!
+# For RGBW NeoPixels, simply change the ORDER to RGBW or GRBW.
+ORDER = neopixel.GRB
+
+pixels = neopixel.NeoPixel(
+    pixel_pin, num_pixels, brightness=0.09, auto_write=False, pixel_order=ORDER
 
 class LED:
-    GPIO.setmode(GPIO.BCM)
-    # Choose an open pin connected to the Data In of the NeoPixel strip, i.e. board.D18
-    # NeoPixels must be connected to D10, D12, D18 or D21 to work.
-    pixel_pin = board.D18
-
-    # The number of NeoPixels
-    num_pixels = 12
-
-    # The order of the pixel colors - RGB or GRB. Some NeoPixels have red and green reversed!
-    # For RGBW NeoPixels, simply change the ORDER to RGBW or GRBW.
-    ORDER = neopixel.GRB
-
-    pixels = neopixel.NeoPixel(
-        pixel_pin, num_pixels, brightness=0.09, auto_write=False, pixel_order=ORDER
-    )
-
-    def __init__(self, pos, wait):
-        self.pos = None
+    def __init__(self, wait):
         self.wait = None
+        self.num_pixels = 12
 
-    def wheel(self):
+    def wheel(self, pos):
         # Input a value 0 to 255 to get a color value.
         # The colours are a transition r - g - b - back to r.
-        if self.pos < 0 or self.pos > 255:
+        if pos < 0 or pos > 255:
             r = g = b = 0
-        elif self.pos < 85:
-            r = int(self.pos * 3)
-            g = int(255 - self.pos * 3)
+        elif pos < 85:
+            r = int(pos * 3)
+            g = int(255 - pos * 3)
             b = 0
-        elif self.pos < 170:
-            self.pos -= 85
-            r = int(255 - self.pos * 3)
+        elif pos < 170:
+            pos -= 85
+            r = int(255 - pos * 3)
             g = 0
-            b = int(self.pos * 3)
+            b = int(pos * 3)
         else:
-            self.pos -= 170
+            pos -= 170
             r = 0
-            g = int(self.pos * 3)
-            b = int(255 - self.pos * 3)
+            g = int(pos * 3)
+            b = int(255 - pos * 3)
         return (r, g, b) if ORDER in (neopixel.RGB, neopixel.GRB) else (r, g, b, 0)
 
     def rainbow_cycle(self):
         for j in range(255):
-            for i in range(num_pixels):
-                pixel_index = (i * 256 // num_pixels) + j
-                pixels[i] = wheel(pixel_index & 255)
+            for i in range(self.num_pixels):
+                pixel_index = (i * 256 // self.num_pixels) + j
+                pixels[i] = self.wheel(pos=(pixel_index & 255))
             pixels.show()
             time.sleep(self.wait)
 
@@ -83,7 +81,8 @@ class LED:
         try:
             while True:
                 # Comment this line out if you have RGBW/GRBW NeoPixels
-                pixels.fill((255, 0, 0))
+                #pixels.fill((255, 0, 0))
+                pixels.fill(255, 0, 0)
                 # Uncomment this line if you have RGBW/GRBW NeoPixels
                 # pixels.fill((255, 0, 0, 0))
                 pixels.show()
@@ -103,7 +102,7 @@ class LED:
                 pixels.show()
                 time.sleep(1)
 
-                rainbow_cycle(0.001)  # rainbow cycle with 1ms delay per step
+                self.rainbow_cycle()  # rainbow cycle with 1ms delay per step
         except KeyboardInterrupt:
             pixels.fill((0, 0, 0))
             pixels.show()
@@ -143,7 +142,6 @@ class step:
         # print(self.status.value)
 
     def down(self):
-
         count = int(self.status.value)
         down = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
 
@@ -171,7 +169,7 @@ class step:
 
 def control(steps, ctr, procs):
     while True:
-        LED(pos=ctr, wait=0).rainbow_cycle()
+        LED(wait=0.001).rainbow_cycle()
         if steps == 0:
             for i in range(len(ctr)):
                 ctr[i] = 0
