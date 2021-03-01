@@ -8,16 +8,25 @@ import board  # Simple test for NeoPixels on Raspberry Pi
 n = 0
 
 
-def on_connect(client, userdata, rc, properties=None):
+def on_connect(client, rc, properties=None):
     print("Connected with result code " + str(rc))
     client.subscribe("Curtain/ctr")
 
+    # 추가 사항
+    client.subscribe("LED/ctr")
 
-def on_message(client, userdata, msg):
+
+def on_message(msg):
     global n
     if msg.topic == "Curtain/ctr":
         n = int(msg.payload)
     print(msg.topic + " " + str(msg.payload))
+
+    # LED 추가사항
+    if msg.topic == "LED/ctr":
+        n = int(msg.payload)
+    print(msg.topic + " " + str(msg.payload))
+
 
 
 client = mqtt.Client(client_id="asdf")
@@ -44,9 +53,18 @@ pixels = neopixel.NeoPixel(
     pixel_pin, num_pixels, brightness=0.09, auto_write=False, pixel_order=ORDER
 
 class LED:
-    def __init__(self, wait):
-        self.wait = None
+    def __init__(self, Pins, wait, act, status):
+        self.wait = wait
         self.num_pixels = 12
+        self.Pins = Pins
+        self.status = Value('i', status)
+        self.act = Value('i', act)
+
+
+    def ini(self):
+        for pin in self.Pins:
+            GPIO.setup(pin, GPIO.OUT)
+            GPIO.output(pin, False)
 
     def wheel(self, pos):
         # Input a value 0 to 255 to get a color value.
@@ -77,6 +95,7 @@ class LED:
             pixels.show()
             time.sleep(self.wait)
 
+
     def main(self):
         try:
             while True:
@@ -106,6 +125,12 @@ class LED:
         except KeyboardInterrupt:
             pixels.fill((0, 0, 0))
             pixels.show()
+
+    def ctr(self, control):
+        if control == 1:
+            self.main()
+        else:
+            print("No connect")
 
 
 # curtain
@@ -169,12 +194,17 @@ class step:
 
 def control(steps, ctr, procs):
     while True:
-        LED(wait=0.001).rainbow_cycle()
         if steps == 0:
             for i in range(len(ctr)):
                 ctr[i] = 0
-                procs[i] = Process(target=step_arr[i].ctr, args=(ctr[i],))
+                procs[i] = Process(target=step_arr[i].ctr, args=(ctr[i], ))
                 procs[i].start()
+            # 추가부분
+            for i in range(len(ctr)):
+                ctr[i] = 0
+                procs[i] = Process(target=step_led[i].ctr, args=(ctr[i], ))
+                procs[i].start()
+
         else:
             for i in range(len(ctr)):
                 if i < steps:
@@ -184,6 +214,9 @@ def control(steps, ctr, procs):
                 procs[i] = Process(target=step_arr[i].ctr, args=(ctr[i],))
                 procs[i].start()
 
+                # 추가부분
+                procs[i] = Process(target=step_led[i].ctr, args=(ctr[i], ))
+                procs[i].start()
 
 
 
@@ -191,19 +224,29 @@ pins1 = [26, 19, 13, 6]
 pins2 = [21, 20, 16, 12]
 pins3 = [24, 23, 18, 15]
 pins4 = [1, 7, 8, 25]
+pins_led = [10]
+
 ctr = [0, 0, 0, 0]
 step1 = step(pins1, 0, 0)
 step2 = step(pins2, 0, 0)
 step3 = step(pins3, 0, 0)
 step4 = step(pins4, 0, 0)
+led_step = LED(Pins=pins_led, act=0, status=0, wait=1)
+
 step1.ini()
 step2.ini()
 step3.ini()
 step4.ini()
+# 추가 코드
+led_step.ini()
+
 step_arr = [step1, step2, step3, step4]
+# 추가 코드 led process thread 설정
+tep_led = [led_step]
 
 procs = [Process(target=step1.ctr, args=(step1.act.value,)), Process(target=step2.ctr, args=(step2.act.value,)),
-         Process(target=step3.ctr, args=(step3.act.value,)), Process(target=step4.ctr, args=(step4.act.value,))]
+         Process(target=step3.ctr, args=(step3.act.value,)), Process(target=step4.ctr, args=(step4.act.value,)),
+         Process(target=led_step.ctr, args=(led_step.act.value, ))]
 
 
 while True:
