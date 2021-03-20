@@ -4,19 +4,33 @@ from multiprocessing import Process, Value
 import keyboard
 import paho.mqtt.client as mqtt
 import board  # Simple test for NeoPixels on Raspberry Pi
+import neopixel
 
 n = 0
-
+rgb = [0, 230, 50]
+brightness = 0.59
 
 def on_connect(client, userdata, rc, properties=None):
     print("Connected with result code " + str(rc))
     client.subscribe("Curtain/ctr")
+    
+    client.subscribe("LED/color")
+    client.subscribe("LED/bright")
 
 
 def on_message(client, userdata, msg):
     global n
+    global led
+    
     if msg.topic == "Curtain/ctr":
         n = int(msg.payload)
+    elif msg.topic == "LED/color":
+        led.rgb = map(int, msg.payload.decode("utf-8").split('|'))        
+        led.colorChange()
+    elif msg.topic == "LED/bright":
+        led.bright = float(msg.payload)
+        print("asdfasfsdfBifdfasdfsdf")
+        led.setBright()
     print(msg.topic + " " + str(msg.payload))
 
 
@@ -24,89 +38,42 @@ client = mqtt.Client(client_id="asdf")
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("192.168.175.248", 1883, 60)
+client.connect("192.168.43.15", 1883, 60)
 
 client.loop_start()
 
+GPIO.setmode(GPIO.BCM)
+# Choose an open pin connected to the Data In of the NeoPixel strip, i.e. board.D18
+# NeoPixels must be connected to D10, D12, D18 or D21 to work.
+# DO --> 10
+pixel_pin = board.D18
+
+# The number of NeoPixels
+num_pixels = 24
+
+# The order of the pixel colors - RGB or GRB. Some NeoPixels have red and green reversed!
+# For RGBW NeoPixels, simply change the ORDER to RGBW or GRBW.
+ORDER = neopixel.GRB
+
+pixels = neopixel.NeoPixel(
+    pixel_pin, num_pixels, brightness=brightness, auto_write=False, pixel_order=ORDER
+)
 
 class LED:
-    GPIO.setmode(GPIO.BCM)
-    # Choose an open pin connected to the Data In of the NeoPixel strip, i.e. board.D18
-    # NeoPixels must be connected to D10, D12, D18 or D21 to work.
-    pixel_pin = board.D18
-
-    # The number of NeoPixels
-    num_pixels = 12
-
-    # The order of the pixel colors - RGB or GRB. Some NeoPixels have red and green reversed!
-    # For RGBW NeoPixels, simply change the ORDER to RGBW or GRBW.
-    ORDER = neopixel.GRB
-
-    pixels = neopixel.NeoPixel(
-        pixel_pin, num_pixels, brightness=0.09, auto_write=False, pixel_order=ORDER
-    )
-
-    def __init__(self, pos, wait):
-        self.pos = None
-        self.wait = None
-
-    def wheel(self):
-        # Input a value 0 to 255 to get a color value.
-        # The colours are a transition r - g - b - back to r.
-        if self.pos < 0 or self.pos > 255:
-            r = g = b = 0
-        elif self.pos < 85:
-            r = int(self.pos * 3)
-            g = int(255 - self.pos * 3)
-            b = 0
-        elif self.pos < 170:
-            self.pos -= 85
-            r = int(255 - self.pos * 3)
-            g = 0
-            b = int(self.pos * 3)
-        else:
-            self.pos -= 170
-            r = 0
-            g = int(self.pos * 3)
-            b = int(255 - self.pos * 3)
-        return (r, g, b) if ORDER in (neopixel.RGB, neopixel.GRB) else (r, g, b, 0)
-
-    def rainbow_cycle(self):
-        for j in range(255):
-            for i in range(num_pixels):
-                pixel_index = (i * 256 // num_pixels) + j
-                pixels[i] = wheel(pixel_index & 255)
-            pixels.show()
-            time.sleep(self.wait)
-
-    def main(self):
-        try:
-            while True:
-                # Comment this line out if you have RGBW/GRBW NeoPixels
-                pixels.fill((255, 0, 0))
-                # Uncomment this line if you have RGBW/GRBW NeoPixels
-                # pixels.fill((255, 0, 0, 0))
-                pixels.show()
-                time.sleep(1)
-
-                # Comment this line out if you have RGBW/GRBW NeoPixels
-                pixels.fill((0, 255, 0))
-                # Uncomment this line if you have RGBW/GRBW NeoPixels
-                # pixels.fill((0, 255, 0, 0))
-                pixels.show()
-                time.sleep(1)
-
-                # Comment this line out if you have RGBW/GRBW NeoPixels
-                pixels.fill((0, 0, 255))
-                # Uncomment this line if you have RGBW/GRBW NeoPixels
-                # pixels.fill((0, 0, 255, 0))
-                pixels.show()
-                time.sleep(1)
-
-                rainbow_cycle(0.001)  # rainbow cycle with 1ms delay per step
-        except KeyboardInterrupt:
-            pixels.fill((0, 0, 0))
-            pixels.show()
+    def __init__(self, num_pixels, pixel_pin, bright, rgb):
+        self.num_pixels = num_pixels
+        self.pixel_pin = pixel_pin
+        self.bright = bright
+        self.rgb = rgb
+        
+    def colorChange(self):
+        pixels.fill(tuple(self.rgb))
+        pixels.show()           
+            
+    def setBright(self):
+        pixels.brightness = led.bright
+        pixels.show()
+        print("asdfasfsdfadf")
 
 
 # curtain
@@ -143,7 +110,6 @@ class step:
         # print(self.status.value)
 
     def down(self):
-
         count = int(self.status.value)
         down = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
 
@@ -170,8 +136,6 @@ class step:
 
 
 def control(steps, ctr, procs):
-    while True:
-        LED(pos=ctr, wait=0).rainbow_cycle()
         if steps == 0:
             for i in range(len(ctr)):
                 ctr[i] = 0
@@ -189,37 +153,37 @@ def control(steps, ctr, procs):
 
 
 
+LED_pin = 10
+
 pins1 = [26, 19, 13, 6]
 pins2 = [21, 20, 16, 12]
 pins3 = [24, 23, 18, 15]
 pins4 = [1, 7, 8, 25]
+
+
+
+led = LED(num_pixels, LED_pin, 0.59, rgb)
 ctr = [0, 0, 0, 0]
 step1 = step(pins1, 0, 0)
 step2 = step(pins2, 0, 0)
 step3 = step(pins3, 0, 0)
 step4 = step(pins4, 0, 0)
+
 step1.ini()
 step2.ini()
 step3.ini()
 step4.ini()
+led.colorChange()
 step_arr = [step1, step2, step3, step4]
 
 procs = [Process(target=step1.ctr, args=(step1.act.value,)), Process(target=step2.ctr, args=(step2.act.value,)),
          Process(target=step3.ctr, args=(step3.act.value,)), Process(target=step4.ctr, args=(step4.act.value,))]
 
-
-while True:
-    # client.loop()
-    if keyboard.is_pressed("0"):
-        n = 0
-    elif keyboard.is_pressed("1"):
-        n = 1
-    elif keyboard.is_pressed("2"):
-        n = 2
-    elif keyboard.is_pressed("3"):
-        n = 3
-    elif keyboard.is_pressed("4"):
-        n = 4
-    else:
+try:
+    while True:
+        # client.loop()
         control(n, ctr, procs)
-    print(ctr)
+        print(ctr)
+except KeyboardInterrupt:
+    pixels.fill((0, 0, 0))
+    pixels.show()
