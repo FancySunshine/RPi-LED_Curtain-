@@ -5,6 +5,12 @@ import keyboard
 import paho.mqtt.client as mqtt
 import board  # Simple test for NeoPixels on Raspberry Pi
 import neopixel
+import busio
+import adafruit_tsl2561
+from micropython import const
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.base import JobLookupError
+
 
 n = 0
 rgb = [0, 230, 50]
@@ -38,7 +44,7 @@ client = mqtt.Client(client_id="asdf")
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("192.168.43.15", 1883, 60)
+client.connect("192.168.191.248", 1883, 60)
 
 client.loop_start()
 
@@ -149,20 +155,81 @@ def control(steps, ctr, procs):
                     ctr[i] = 0
                 procs[i] = Process(target=step_arr[i].ctr, args=(ctr[i],))
                 procs[i].start()
+                
+# get Lux from sensor                
+def getLux():
+    now = time.localtime()
+    date = "%04d-%02d-%02d %02d:%02d:%02d" % (now.tm_year, now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec)
+    lux_data = []
+    print(date)
+    print()
+    for i in tsl:    
+        print("Chip ID = {}".format(i.chip_id))
+
+        # Enable the light sensor
+        i.enabled = True
+        time.sleep(1)
+
+        # Set gain 0=1x, 1=16x
+        i.gain = 0
+
+        # Set integration time (0=13.7ms, 1=101ms, 2=402ms, or 3=manual)
+        i.integration_time = 1
+
+        print("Getting readings...")
+
+        # Get raw (luminosity) readings individually
+        broadband = i.broadband
+        infrared = i.infrared
+
+        # Get raw (luminosity) readings using tuple unpacking
+        # broadband, infrared = tsl.luminosity
+
+        # Get computed lux value (tsl.lux can return None or a float)
+        lux = i.lux
+        lux_data.append(str(lux))
+        # Print results
 
 
+        if lux is not None:
+            print("Lux = {}".format(lux))
+        else:
+            print("Lux value is None. Possible sensor underrange or overrange.")
+
+        # Disble the light sensor (to save power)
+        i.enabled = False
+    lux_data = date + "|" + "|".join(lux_data)
+    print(lux_data)
+    client.publish("Database/bright/save", lux_data)
+        
+        
+
+# ---Lightsensor---
+# Create the I2C bus
+i2c = busio.I2C(board.SCL, board.SDA)
+print(i2c.scan())
+print(board.SCL, board.SDA)
+
+# Create the TSL2561 instance, passing in the I2C bus
+tsl = [adafruit_tsl2561.TSL2561(i2c, address=const(0x29)), adafruit_tsl2561.TSL2561(i2c)]
+# Print chip info
+
+sched = BackgroundScheduler()
+sched.start()
+
+sched.add_job(getLux, 'cron', second='*/5', id='lux')
 
 
 LED_pin = 10
 
-pins1 = [26, 19, 13, 6]
-pins2 = [21, 20, 16, 12]
-pins3 = [24, 23, 18, 15]
-pins4 = [1, 7, 8, 25]
+pins1 = [4, 14, 15, 10]
+pins2 = [17, 27, 22, 23]
+pins3 = [24, 9, 25, 11]
+pins4 = [8, 7, 1, 5]
 
 
 
-led = LED(num_pixels, LED_pin, 0.59, rgb)
+led = LED(num_pixels, pixel_pin, 0.59, rgb)
 ctr = [0, 0, 0, 0]
 step1 = step(pins1, 0, 0)
 step2 = step(pins2, 0, 0)
@@ -183,8 +250,6 @@ try:
     while True:
         # client.loop()
         control(n, ctr, procs)
-        print(ctr)
 except KeyboardInterrupt:
     pixels.fill((0, 0, 0))
     pixels.show()
-
