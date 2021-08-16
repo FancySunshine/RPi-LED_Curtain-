@@ -1,32 +1,26 @@
 import time
 import RPi.GPIO as GPIO
-#from multiprocessing import Process, Value
+from multiprocessing import Process, Value
 #import keyboard
 import paho.mqtt.client as mqtt
 import board  # Simple test for NeoPixels on Raspberry Pi
 import neopixel
 import busio
-#import adafruit_tsl2561
-#from micropython import const
-#from apscheduler.schedulers.background import BackgroundScheduler
-#from apscheduler.jobstores.base import JobLookupError
+import adafruit_tsl2561
+from micropython import const
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.base import JobLookupError
 #import VL53L0X
-import serial
 
-port = '/dev/ttyACM0'
-brate = 9600
-auto = False
-
-seri = serial.Serial(port, baudrate = brate, timeout = None)
-print(seri.name)
 
 n = 0
 rgb = [0, 230, 50]
-brightness = 0
+brightness = 0.59
+
 def on_connect(client, userdata, rc, properties=None):
     print("Connected with result code " + str(rc))
     client.subscribe("ctn/step")
-    client.subscribe("auto/ctr")
+    
     client.subscribe("led/color")
     client.subscribe("led/bright")
 
@@ -41,15 +35,9 @@ def on_message(client, userdata, msg):
         led.rgb = map(int, msg.payload.decode("utf-8").split('|'))        
         led.colorChange()
     elif msg.topic == "led/bright":
-        led.bright = float(msg.payload) * 1.25
+        led.bright = float(msg.payload) * 0.01
         print("asdfasfsdfBifdfasdfsdf")
         led.setBright()
-    elif msg.topic == "auto/ctr":
-	if msg.payload == "0":
-		auto = False
-	else:
-		auto = True
-        #auto_detection()
     print(msg.topic + " " + str(msg.payload))
 
 
@@ -84,9 +72,11 @@ class LED:
         self.pixel_pin = pixel_pin
         self.bright = bright
         self.rgb = rgb
+        
     def colorChange(self):
         pixels.fill(tuple(self.rgb))
-        pixels.show()
+        pixels.show()           
+            
     def setBright(self):
         pixels.brightness = led.bright
         pixels.show()
@@ -95,11 +85,12 @@ class LED:
 
 # curtain
 class step:
-    def __init__(self, Pins, status):
+    def __init__(self, Pins, status, act):
         self.StepCount = 4
         self.StepCounter = 0
         self.Pins = Pins
-        self.status = status
+        self.status = Value('i', status)
+        self.act = Value('i', act)
 
     def ini(self):
         for pin in self.Pins:
@@ -107,39 +98,41 @@ class step:
             GPIO.output(pin, False)
 
     def up(self):
+        count = int(self.status.value)
 
-        #up = [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0]]
-        up = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+        up = [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0]]
+
         try:
-            if self.status > 0:
+            if count > 0:
                 for pin in range(0, 4):
                     xpin = self.Pins[pin]
-                    if up[self.status % 4][pin] != 0:
+                    if up[count % 4][pin] != 0:
                         GPIO.output(xpin, True)
                     else:
                         GPIO.output(xpin, False)
-               	self.status -= 1
-            time.sleep(0.001)
+                count -= 1
         except KeyboardInterrupt:
             print()
-
+        self.status.value = count
         # print(self.status.value)
 
     def down(self):
+        count = int(self.status.value)
         down = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+
         try:
-            if self.status < 10000:
+            if count < 6300:
                 for pin in range(0, 4):
                     xpin = self.Pins[pin]
-                    if down[self.status % 4][pin] != 0:
+                    if down[count % 4][pin] != 0:
                         GPIO.output(xpin, True)
                     else:
                         GPIO.output(xpin, False)
 
-                self.status += 1
-            time.sleep(0.001)
+                count += 1
         except KeyboardInterrupt:
             print()
+        self.status.value = count
         # print(self.status.value)
 
     def ctr(self, control):
@@ -149,45 +142,21 @@ class step:
             self.up()
 
 
-def control(steps):
-	if steps == 0:
-		for i in range(0, 4):
-			step_arr[i].ctr(0)
-	else:
-		for i in range(0, 4):
-			if i < steps:
-				step_arr[i].ctr(1)
-			else:
-				step_arr[i].ctr(0)
+def control(steps, ctr):
+    if steps == 0:
+        for i in range(len(ctr)):
+            ctr[i] = 0
+            step_arr[i].ctr(ctr[i])
+    else:
+        for i in range(len(ctr)):
+            if i < steps:
+                ctr[i] = 1
+            else:
+                    ctr[i] = 0
+            step_arr[i].ctr(ctr[
 
 
 # get Lux from sensor
-
-def auto_detection():
-        a = 0
-        if(auto):
-                seri.write(auto.encode())
-                a=1
-                while a:
-                        if seri.in_waiting !=0 :
-                                content = seri.readline()
-                                print(content[:2].decode())
-                                a = 0
-
-def getLux():
-
-        a = 0
-        seri.write(lux.encode())
-        a = 1
-        while a:
-                if seri.in_waiting != 0:
-                        content = seri.readline()
-                        print(content[:2].decode())
-                        a = 0
-
-
-
-"""
 def getLux():
     now = time.localtime()
     date = "%04d-%02d-%02d %02d:%02d:%02d" % (now.tm_year, now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec)
@@ -232,22 +201,22 @@ def getLux():
     lux_data = date + "|" + "|".join(lux_data)
     print(lux_data)
     client.publish("Database/bright/save", lux_data)
-"""
+
 
 # ---Lightsensor---
 # Create the I2C bus
-#i2c = busio.I2C(board.SCL, board.SDA)
-#print(i2c.scan())
-#print(board.SCL, board.SDA)
+i2c = busio.I2C(board.SCL, board.SDA)
+print(i2c.scan())
+print(board.SCL, board.SDA)
 
 # Create the TSL2561 instance, passing in the I2C bus
-#tsl = [adafruit_tsl2561.TSL2561(i2c, address=const(0x29)), adafruit_tsl2561.TSL2561(i2c)]
+tsl = [adafruit_tsl2561.TSL2561(i2c, address=const(0x29)), adafruit_tsl2561.TSL2561(i2c)]
 # Print chip info
 
-#sched = BackgroundScheduler()
-#sched.start()
+sched = BackgroundScheduler()
+sched.start()
 
-#sched.add_job(getLux, 'cron', second='*/5', id='lux')
+sched.add_job(getLux, 'cron', second='*/5', id='lux')
 
 
 LED_pin = 10
@@ -259,12 +228,12 @@ pins4 = [8, 7, 1, 5]
 
 
 
-led = LED(num_pixels, pixel_pin, 0, rgb)
-
-step1 = step(pins1, 0)
-step2 = step(pins2, 0)
-step3 = step(pins3, 0)
-step4 = step(pins4, 0)
+led = LED(num_pixels, pixel_pin, 0.59, rgb)
+ctr = [0, 0, 0, 0]
+step1 = step(pins1, 0, 0)
+step2 = step(pins2, 0, 0)
+step3 = step(pins3, 0, 0)
+step4 = step(pins4, 0, 0)
 
 step1.ini()
 step2.ini()
@@ -276,10 +245,7 @@ step_arr = [step1, step2, step3, step4]
 try:
     while True:
         # client.loop()
-        control(n)
-        getLux()
-        # a = [i.status for i in step_arr]
-        # print(a)
+        control(n, ctr)
 except KeyboardInterrupt:
     pixels.fill((0, 0, 0))
     pixels.show()
