@@ -1,7 +1,7 @@
 import time
 import RPi.GPIO as GPIO
 from multiprocessing import Process, Value
-#import keyboard
+import keyboard
 import paho.mqtt.client as mqtt
 import board  # Simple test for NeoPixels on Raspberry Pi
 import neopixel
@@ -10,36 +10,32 @@ import adafruit_tsl2561
 from micropython import const
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.base import JobLookupError
-#import VL53L0X
 # 구현에 필요한 라이브러리 import
 
-
-# LED의 초기 색상과 밝기 설정
-# 커튼의 초기 단계 설정
 n = 0
-rgb = [0, 230, 50]
-brightness = 0
+rgb = [0, 230, 50] # LED 초기 색상 설정
+brightness = 0.59 # LED 초기 밝기 설정
 
 # mqtt 연결 설정
 def on_connect(client, userdata, rc, properties=None):
     print("Connected with result code " + str(rc))
-    client.subscribe("ctn/step")
+    client.subscribe("Curtain/ctr")
     
-    client.subscribe("led/color")
-    client.subscribe("led/bright")
+    client.subscribe("LED/color")
+    client.subscribe("LED/bright")
 
 # mqtt 토픽에 의한 행동 설정
 def on_message(client, userdata, msg):
     global n
     global led
     
-    if msg.topic == "ctn/step":
+    if msg.topic == "Curtain/ctr":
         n = int(msg.payload)
-    elif msg.topic == "led/color":
+    elif msg.topic == "LED/color":
         led.rgb = map(int, msg.payload.decode("utf-8").split('|'))        
         led.colorChange()
-    elif msg.topic == "led/bright":
-        led.bright = float(msg.payload) * 1.25
+    elif msg.topic == "LED/bright":
+        led.bright = float(msg.payload)
         print("asdfasfsdfBifdfasdfsdf")
         led.setBright()
     print(msg.topic + " " + str(msg.payload))
@@ -49,16 +45,15 @@ client = mqtt.Client(client_id="asdf")
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("192.168.15.44", 1883, 60)
+client.connect("192.168.191.248", 1883, 60)
 
 client.loop_start()
 
-# 센서 사용에 팔요한 GPIO 설정
+# 센서 사용에 필요한 GPIO 설정
 GPIO.setmode(GPIO.BCM)
 # Choose an open pin connected to the Data In of the NeoPixel strip, i.e. board.D18
 # NeoPixels must be connected to D10, D12, D18 or D21 to work.
 # DO --> 10
-
 # LED GPIO 18번 핀으로 설정
 pixel_pin = board.D18
 
@@ -69,7 +64,6 @@ num_pixels = 24
 # For RGBW NeoPixels, simply change the ORDER to RGBW or GRBW.
 ORDER = neopixel.GRB
 
-# LED의 기본설정
 pixels = neopixel.NeoPixel(
     pixel_pin, num_pixels, brightness=brightness, auto_write=False, pixel_order=ORDER
 )
@@ -80,13 +74,11 @@ class LED:
         self.pixel_pin = pixel_pin
         self.bright = bright
         self.rgb = rgb
-
-# 색상 변경        
+        
     def colorChange(self):
         pixels.fill(tuple(self.rgb))
         pixels.show()           
-
-# 밝기 변경            
+            
     def setBright(self):
         pixels.brightness = led.bright
         pixels.show()
@@ -99,50 +91,50 @@ class step:
         self.StepCount = 4
         self.StepCounter = 0
         self.Pins = Pins
-        self.status = status
-        self.act = act
+        self.status = Value('i', status)
+        self.act = Value('i', act)
 
     def ini(self):
         for pin in self.Pins:
             GPIO.setup(pin, GPIO.OUT)
             GPIO.output(pin, False)
 
-# motor의 up 시퀀스
     def up(self):
+        count = int(self.status.value)
 
-        #up = [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0]]
-        up = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+        up = [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0]]
+
         try:
-            if self.status > 0:
+            if count > 0:
                 for pin in range(0, 4):
                     xpin = self.Pins[pin]
-                    if up[self.status % 4][pin] != 0:
+                    if up[count % 4][pin] != 0:
                         GPIO.output(xpin, True)
                     else:
                         GPIO.output(xpin, False)
-               	self.status -= 1
-            time.sleep(0.001)
+                count -= 1
         except KeyboardInterrupt:
             print()
-
+        self.status.value = count
         # print(self.status.value)
 
-# motor 의 down 시퀀스
     def down(self):
+        count = int(self.status.value)
         down = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+
         try:
-            if self.status < 10000:
+            if count < 6300:
                 for pin in range(0, 4):
                     xpin = self.Pins[pin]
-                    if down[self.status % 4][pin] != 0:
+                    if down[count % 4][pin] != 0:
                         GPIO.output(xpin, True)
                     else:
                         GPIO.output(xpin, False)
 
-                self.status += 1
-            time.sleep(0.001)
+                count += 1
         except KeyboardInterrupt:
             print()
+        self.status.value = count
         # print(self.status.value)
 
     def ctr(self, control):
@@ -152,21 +144,21 @@ class step:
             self.up()
 
 
-# motor의 단계 제어에 의한 로직
-def control(steps, ctr):
-    if steps == 0:
-        for i in range(len(ctr)):
-            ctr[i] = 0
-            step_arr[i].ctr(ctr[i])
-    else:
-        for i in range(len(ctr)):
-            if i < steps:
-                ctr[i] = 1
-            else:
+def control(steps, ctr, procs):
+        if steps == 0:
+            for i in range(len(ctr)):
                 ctr[i] = 0
-            step_arr[i].ctr(ctr[i])
-
-
+                procs[i] = Process(target=step_arr[i].ctr, args=(ctr[i],))
+                procs[i].start()
+        else:
+            for i in range(len(ctr)):
+                if i < steps:
+                    ctr[i] = 1
+                else:
+                    ctr[i] = 0
+                procs[i] = Process(target=step_arr[i].ctr, args=(ctr[i],))
+                procs[i].start()
+                
 # get Lux from sensor                
 def getLux():
     now = time.localtime()
@@ -217,32 +209,30 @@ def getLux():
 
 # ---Lightsensor---
 # Create the I2C bus
-
-# 조도센서 i2c bus 연결 설정
 i2c = busio.I2C(board.SCL, board.SDA)
 print(i2c.scan())
 print(board.SCL, board.SDA)
 
 # Create the TSL2561 instance, passing in the I2C bus
-# 2개의 조도센서 설정
 tsl = [adafruit_tsl2561.TSL2561(i2c, address=const(0x29)), adafruit_tsl2561.TSL2561(i2c)]
 # Print chip info
 
-# 스케쥴러 사용
 sched = BackgroundScheduler()
 sched.start()
 
 sched.add_job(getLux, 'cron', second='*/5', id='lux')
 
-# motor가 연결된 핀 리스트
+
+LED_pin = 10
+
 pins1 = [4, 14, 15, 10]
 pins2 = [17, 27, 22, 23]
 pins3 = [24, 9, 25, 11]
 pins4 = [8, 7, 1, 5]
 
 
-# 모터, led 객체 생성 객체 실행
-led = LED(num_pixels, pixel_pin, 0, rgb)
+
+led = LED(num_pixels, pixel_pin, 0.59, rgb)
 ctr = [0, 0, 0, 0]
 step1 = step(pins1, 0, 0)
 step2 = step(pins2, 0, 0)
@@ -256,12 +246,13 @@ step4.ini()
 led.colorChange()
 step_arr = [step1, step2, step3, step4]
 
+procs = [Process(target=step1.ctr, args=(step1.act.value,)), Process(target=step2.ctr, args=(step2.act.value,)),
+         Process(target=step3.ctr, args=(step3.act.value,)), Process(target=step4.ctr, args=(step4.act.value,))]
+
 try:
     while True:
         # client.loop()
-        control(n, ctr)
-       # a = [i.status for i in step_arr]
-       # print(a)
+        control(n, ctr, procs)
 except KeyboardInterrupt:
     pixels.fill((0, 0, 0))
     pixels.show()
